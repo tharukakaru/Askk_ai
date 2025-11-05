@@ -11,9 +11,9 @@ import { FiPaperclip } from "react-icons/fi";
 
 const App = () => {
   const [screen, setScreen] = useState("welcome");
-  const [showSignup, setShowSignup] = useState(false); // signup overlay toggle
+  const [showSignup, setShowSignup] = useState(false);
   const [messages, setMessages] = useState([]);
-  const [chats, setChats] = useState([]); // store all chats
+  const [chats, setChats] = useState([]);
   const [currentChatIndex, setCurrentChatIndex] = useState(0);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -31,7 +31,7 @@ const App = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // parallax for welcome circles
+  // parallax effect for welcome circles
   useEffect(() => {
     const handleMouseMove = (e) => {
       const x = (e.clientX / window.innerWidth - 0.5) * 40;
@@ -42,112 +42,99 @@ const App = () => {
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, []);
 
-  // ensure there's at least one chat after sign in (when we open chat screen)
+  // ensure there's at least one chat when chat screen opens
   useEffect(() => {
     if (screen === "chat" && chats.length === 0) {
       setChats([{ id: Date.now(), title: "New Chat", messages: [] }]);
       setCurrentChatIndex(0);
       setMessages([]);
     }
-  }, [screen]); // eslint-disable-line
+  }, [screen]);
 
-  const sendMessage = () => {
+  // ---------------------- SEND MESSAGE ----------------------
+  const sendMessage = async () => {
     if (!input.trim()) return;
+
     const userMsg = { text: input, user: true, ts: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsLoading(true);
 
-    // If there is no chat at current index (rare), make one
-    if (!chats[currentChatIndex]) {
-      const newChat = {
-        id: Date.now(),
-        title: userMsg.text.slice(0, 25) + (userMsg.text.length > 25 ? "..." : ""),
-        messages: [userMsg],
-      };
-      const updated = [...chats];
-      updated[currentChatIndex] = newChat;
-      setChats(updated);
-    } else {
-      // push the user message into the chat history
-      const updated = [...chats];
-      if (!updated[currentChatIndex].messages) updated[currentChatIndex].messages = [];
-      updated[currentChatIndex].messages.push(userMsg);
-      // update title if it's the first message
-      if (
-        updated[currentChatIndex].messages.length === 1 ||
-        updated[currentChatIndex].title === "New Chat"
-      ) {
-        updated[currentChatIndex].title =
-          userMsg.text.slice(0, 25) + (userMsg.text.length > 25 ? "..." : "");
-      }
-      setChats(updated);
-    }
-
-
-    const sendMessage = async () => {
-      if (!input.trim()) return;
-
-      const userMsg = { text: input, user: true, ts: Date.now() };
-      setMessages((prev) => [...prev, userMsg]);
-      setInput("");
-      setIsLoading(true);
-
-
-      // Update chat history
-      const updatedChats = [...chats];
-      if (!updatedChats[currentChatIndex]) {
-        updatedChats[currentChatIndex] = { 
-          id: Date.now(), 
-          title: "New Chat", 
-          messages: [userMsg], 
+    // Update chat state safely
+    setChats((prevChats) => {
+      const updated = [...prevChats];
+      if (!updated[currentChatIndex]) {
+        updated[currentChatIndex] = {
+          id: Date.now(),
+          title:
+            userMsg.text.slice(0, 25) +
+            (userMsg.text.length > 25 ? "..." : ""),
+          messages: [userMsg],
         };
       } else {
-        if (!updatedChats[currentChatIndex].messages) 
-          updatedChats[currentChatIndex].messages = [];
-        updatedChats[currentChatIndex].messages.push(userMsg);
+        const chat = { ...updated[currentChatIndex] };
+        chat.messages = [...(chat.messages || []), userMsg];
         if (
-          updatedChats[currentChatIndex].messages.length === 1 || 
-          updatedChats[currentChatIndex].title === "New Chat"
+          chat.messages.length === 1 ||
+          chat.title === "New Chat"
         ) {
-          updatedChats[currentChatIndex].title =
-            userMsg.text.slice(0, 25) + (userMsg.text.length > 25 ? "..." : "");
+          chat.title =
+            userMsg.text.slice(0, 25) +
+            (userMsg.text.length > 25 ? "..." : "");
         }
+        updated[currentChatIndex] = chat;
       }
-      setChats(updatedChats);
+      return updated;
+    });
 
-      // 🔥 Call backend
+    // 🔥 Call backend
+    try {
+      const res = await fetch("http://127.0.0.1:8000/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: userMsg.text }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+
+      let data;
       try {
-        const res = await fetch("http://localhost:8000/ask", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: input }),
-        });
-
-        const data = await res.json();
-    
-        const aiMsg = { text: data.response || "Sorry, no response.", 
-          user: false, 
-          ts: Date.now() 
-        };
-
-        setMessages((prev) => [...prev, aiMsg]);
-        const updatedChatsAI = [...updatedChats];
-        if (!updatedChatsAI[currentChatIndex].messages)
-          updatedChatsAI[currentChatIndex].messages = [];
-        updatedChatsAI[currentChatIndex].messages.push(aiMsg);
-        setChats(updatedChatsAI);
-      } catch (err) {
-        const errMsg = { text: "Error connecting to backend", user: false, ts: Date.now() };
-        setMessages((prev) => [...prev, errMsg]);
-      } finally {
-        setIsLoading(false);
+        data = await res.json();
+      } catch {
+        data = { response: "Invalid JSON response" };
       }
-    };
 
+      const aiMsg = {
+        text: data.response || "Sorry, no response.",
+        user: false,
+        ts: Date.now(),
+      };
+
+      // Add AI message
+      setMessages((prev) => [...prev, aiMsg]);
+      setChats((prevChats) => {
+        const newChats = [...prevChats];
+        const chat = { ...newChats[currentChatIndex] };
+        chat.messages = [...(chat.messages || []), aiMsg];
+        newChats[currentChatIndex] = chat;
+        return newChats;
+      });
+    } catch (err) {
+      console.error(err);
+      const errMsg = {
+        text: "Error connecting to backend",
+        user: false,
+        ts: Date.now(),
+      };
+      setMessages((prev) => [...prev, errMsg]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // handle sign in (only allowed credentials)
+  // ---------------------- SIGN-IN ----------------------
   const handleSignIn = () => {
     if (!email || !password) {
       setPopup("Email and password are required");
@@ -170,120 +157,114 @@ const App = () => {
     }
   };
 
-  // ---------------------- WELCOME ----------------------
+  // ---------------------- WELCOME SCREEN ----------------------
   if (screen === "welcome") {
-  const circles = [
-    { top: "0%", left: "0%", bg: "rgba(59, 131, 246, 0)", duration: 10 },
-    { top: "0%", left: "0%", bg: "rgba(59, 131, 246, 0)", duration: 5 },
-    { top: "0%", left: "0%", bg: "rgba(250, 204, 21, 0)", duration: 20 },
-    { top: "0%", left: "0%", bg: "rgba(250, 204, 21, 0)", duration: 25 },
-    { top: "0%", left: "0%", bg: "rgba(7, 29, 65, 0)", duration: 23 },
-  ];
+    const circles = [
+      { top: "0%", left: "0%", bg: "rgba(59, 131, 246, 0)", duration: 10 },
+      { top: "0%", left: "0%", bg: "rgba(59, 131, 246, 0)", duration: 5 },
+      { top: "0%", left: "0%", bg: "rgba(250, 204, 21, 0)", duration: 20 },
+      { top: "0%", left: "0%", bg: "rgba(250, 204, 21, 0)", duration: 25 },
+      { top: "0%", left: "0%", bg: "rgba(7, 29, 65, 0)", duration: 23 },
+    ];
 
-  return (
-    <div style={styles.welcomePage}>
-      {/* 🎥 Full-screen background video */}
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        style={styles.bgVideo}
-      >
-        <source src="/vid1.mp4" type="video/mp4" />
-        Your browser does not support the video tag.
-      </video>
+    return (
+      <div style={styles.welcomePage}>
+        <video autoPlay loop muted playsInline style={styles.bgVideo}>
+          <source src="/vid1.mp4" type="video/mp4" />
+          Your browser does not support the video tag.
+        </video>
 
-      {/* Glow circles (kept above video) */}
-      {circles.map((c, i) => (
-        <div
-          key={i}
-          style={{
-            ...styles.glowCircle,
-            top: c.top,
-            left: c.left,
-            background: c.bg,
-            animation: `pulseGlow 6s ease-in-out infinite, drift${i} ${c.duration}s ease-in-out infinite alternate`,
-            transform: `translate(${mousePos.x * (i + 1) * 0.1}px, ${mousePos.y * (i + 1) * 0.1}px)`,
-          }}
-        />
-      ))}
+        {circles.map((c, i) => (
+          <div
+            key={i}
+            style={{
+              ...styles.glowCircle,
+              top: c.top,
+              left: c.left,
+              background: c.bg,
+              animation: `pulseGlow 6s ease-in-out infinite, drift${i} ${c.duration}s ease-in-out infinite alternate`,
+              transform: `translate(${mousePos.x * (i + 1) * 0.1}px, ${mousePos.y * (i + 1) * 0.1}px)`,
+            }}
+          />
+        ))}
 
-      {/* Main Welcome Box */}
-      <div style={styles.welcomeBox}>
-        <h1 style={styles.neonTitle}>Welcome to Askk AI</h1>
-        <p style={styles.neonSubtitle}>Your Intelligent, Creative Companion.</p>
+        <div style={styles.welcomeBox}>
+          <h1 style={styles.neonTitle}>Welcome to Askk AI</h1>
+          <p style={styles.neonSubtitle}>
+            Your Intelligent, Creative Companion.
+          </p>
 
-        <div style={{ position: "relative", display: "inline-block" }}>
-          <div className="neonButtonBorder" />
-          <button
-            className="getStartedBtn"
-            style={styles.neonButton}
-            onClick={() => setShowSignup(true)}
-          >
-            Get Started →
-          </button>
-        </div>
-      </div>
-
-      {showSignup && (
-        <div style={styles.signupOverlay}>
-          <div style={styles.signupBox}>
-            <h2 style={styles.signupTitle}>Login to Askk AI</h2>
-
-            {popup ? <div style={styles.popup}>{popup}</div> : null}
-
-            <input
-              type="email"
-              placeholder="Email Address"
-              style={styles.signupInput}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-
-            <div style={{ position: "relative" }}>
-              <input
-                type={showPassword ? "text" : "password"}
-                placeholder="Password"
-                style={{ ...styles.signupInput, paddingRight: 12 }}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <div
-                style={styles.eyeIcon}
-                onClick={() => setShowPassword((s) => !s)}
-                title={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? <FaEyeSlash /> : <FaEye />}
-              </div>
-            </div>
-
-            <div
-              style={styles.forgot}
-              onClick={() => {
-                setPopup("If you forgot your password, contact admin.");
-                setTimeout(() => setPopup(""), 2400);
-              }}
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <div className="neonButtonBorder" />
+            <button
+              className="getStartedBtn"
+              style={styles.neonButton}
+              onClick={() => setShowSignup(true)}
             >
-              Forgot password?
-            </div>
-
-            <button style={styles.signupBtn} onClick={handleSignIn}>
-              Login
+              Get Started →
             </button>
-
-            <div style={styles.backBtn} onClick={() => setShowSignup(false)}>
-              ← Back
-            </div>
           </div>
         </div>
-      )}
-    </div>
-  );
-}
 
+        {showSignup && (
+          <div style={styles.signupOverlay}>
+            <div style={styles.signupBox}>
+              <h2 style={styles.signupTitle}>Login to Askk AI</h2>
 
-  // ---------------------- CHAT UI ----------------------
+              {popup ? <div style={styles.popup}>{popup}</div> : null}
+
+              <input
+                type="email"
+                placeholder="Email Address"
+                style={styles.signupInput}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Password"
+                  style={{ ...styles.signupInput, paddingRight: 12 }}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <div
+                  style={styles.eyeIcon}
+                  onClick={() => setShowPassword((s) => !s)}
+                >
+                  {showPassword ? <FaEyeSlash /> : <FaEye />}
+                </div>
+              </div>
+
+              <div
+                style={styles.forgot}
+                onClick={() => {
+                  setPopup("If you forgot your password, contact admin.");
+                  setTimeout(() => setPopup(""), 2400);
+                }}
+              >
+                Forgot password?
+              </div>
+
+              <button style={styles.signupBtn} onClick={handleSignIn}>
+                Login
+              </button>
+
+              <div
+                style={styles.backBtn}
+                onClick={() => setShowSignup(false)}
+              >
+                ← Back
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---------------------- CHAT SCREEN ----------------------
   const currentChat = chats[currentChatIndex] || { messages: [] };
 
   return (
@@ -291,7 +272,10 @@ const App = () => {
       {/* Sidebar */}
       <div style={{ ...styles.sidebar, width: sidebarOpen ? 240 : 60 }}>
         <div style={styles.sidebarHeader}>
-          <button onClick={() => setSidebarOpen((s) => !s)} style={styles.menuBtn}>
+          <button
+            onClick={() => setSidebarOpen((s) => !s)}
+            style={styles.menuBtn}
+          >
             ☰
           </button>
           {sidebarOpen && <h2 style={styles.sidebarTitle}>Askk AI</h2>}
@@ -302,8 +286,10 @@ const App = () => {
             <button
               style={styles.newChatBtn}
               onClick={() => {
-                // create a new chat and switch to it
-                const newChats = [...chats, { id: Date.now(), title: "New Chat", messages: [] }];
+                const newChats = [
+                  ...chats,
+                  { id: Date.now(), title: "New Chat", messages: [] },
+                ];
                 setChats(newChats);
                 setCurrentChatIndex(newChats.length - 1);
                 setMessages([]);
@@ -318,7 +304,8 @@ const App = () => {
                   key={chat.id}
                   style={{
                     ...styles.chatItem,
-                    background: idx === currentChatIndex ? "#111827" : "transparent",
+                    background:
+                      idx === currentChatIndex ? "#111827" : "transparent",
                     fontWeight: idx === currentChatIndex ? 700 : 500,
                   }}
                   onClick={() => {
@@ -334,7 +321,10 @@ const App = () => {
         )}
 
         <div style={styles.sidebarUserSection}>
-          <div style={styles.userButton} onClick={() => setShowUserMenu((s) => !s)}>
+          <div
+            style={styles.userButton}
+            onClick={() => setShowUserMenu((s) => !s)}
+          >
             <div style={styles.avatar}>
               <FaUser style={{ color: "#0b1220", fontSize: 12 }} />
             </div>
@@ -371,7 +361,6 @@ const App = () => {
                 ...styles.message,
                 alignSelf: m.user ? "flex-end" : "flex-start",
                 background: m.user ? "#11182aff" : "#0f0f10ff",
-                color: "#fff",
               }}
             >
               {m.text}
@@ -389,10 +378,10 @@ const App = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input area (ChatGPT-like) */}
+        {/* Input area */}
         <div style={styles.inputContainer}>
           <div style={styles.inputInner}>
-            <label htmlFor="file-upload" style={styles.fileLabel} title="Attach file">
+            <label htmlFor="file-upload" style={styles.fileLabel}>
               <FiPaperclip style={styles.fileIcon} />
             </label>
             <input
